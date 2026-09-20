@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StrangerChat</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:#0f1115; color:#f2f3f5; min-height:100vh;
+    display:flex; flex-direction:column;
+  }
+  header {
+    padding:14px 20px; display:flex; justify-content:space-between; align-items:center;
+    border-bottom:1px solid #22262e;
+  }
+  .logo { font-size:22px; font-weight:800; letter-spacing:0.5px; }
+  .logo span { color:#5b8cff; }
+  .online { font-size:13px; color:#9aa3b2; }
+  .online .dot { color:#3ddc84; }
+  #home {
+    flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    padding:24px; text-align:center;
+  }
+  #home h1 { font-size:42px; margin-bottom:12px; }
+  #home h1 span { color:#5b8cff; }
+  #home p { color:#9aa3b2; max-width:440px; margin-bottom:30px; font-size:17px; line-height:1.5; }
+  .btnrow { display:flex; gap:14px; flex-wrap:wrap; justify-content:center; }
+  .bigbtn {
+    padding:16px 36px; font-size:18px; border-radius:14px; cursor:pointer; font-weight:700; border:none;
+  }
+  #btnText { background:#5b8cff; color:#fff; }
+  #btnVideo { background:#1d2129; color:#fff; border:1px solid #333a47; }
+  .fine { margin-top:20px; font-size:12px; color:#6b7280; }
+  #chat { flex:1; display:none; flex-direction:column; max-width:900px; width:100%; margin:0 auto; }
+  #statusbar {
+    padding:10px 16px; display:flex; justify-content:space-between; align-items:center;
+    border-bottom:1px solid #22262e; font-size:14px; gap:10px; flex-wrap:wrap;
+  }
+  #status { color:#9aa3b2; }
+  .controls { display:flex; gap:8px; }
+  .controls button {
+    padding:8px 14px; border-radius:10px; border:1px solid #333a47;
+    background:#1d2129; color:#f2f3f5; font-size:13px; font-weight:600; cursor:pointer;
+  }
+  #btnReport { border-color:#5a2b2b; color:#ff7a7a; }
+  #videos { display:none; gap:10px; padding:12px 16px 0; }
+  #videos video {
+    width:50%; aspect-ratio:4/3; background:#000; border-radius:12px; object-fit:cover;
+    border:1px solid #2a2f3a;
+  }
+  #messages {
+    flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:10px;
+    min-height:200px;
+  }
+  .msg { max-width:78%; padding:10px 14px; border-radius:16px; line-height:1.45; font-size:15px; word-wrap:break-word; }
+  .me { align-self:flex-end; background:#5b8cff; color:#fff; }
+  .them { align-self:flex-start; background:#1d2129; border:1px solid #2a2f3a; }
+  .sys { align-self:center; color:#6b7280; font-size:13px; text-align:center; }
+  #typing { padding:2px 16px 6px; font-size:13px; color:#6b7280; min-height:22px; }
+  #composer { display:flex; gap:10px; padding:12px 16px 16px; border-top:1px solid #22262e; }
+  #input {
+    flex:1; padding:13px 16px; border-radius:12px; border:1px solid #2a2f3a;
+    background:#16191f; color:#fff; font-size:16px; outline:none;
+  }
+  #input:focus { border-color:#5b8cff; }
+  #send {
+    padding:13px 24px; border-radius:12px; background:#5b8cff; color:#fff;
+    border:none; font-weight:700; font-size:15px; cursor:pointer;
+  }
+  button:disabled { opacity:0.4; cursor:default; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">Stranger<span>Chat</span></div>
+  <div class="online"><span class="dot">●</span> <span id="onlineCount">0</span> online now</div>
+</header>
+
+<div id="home">
+  <h1>Talk to <span>random</span> people</h1>
+  <p>No signup. No names. You get paired with a stranger instantly. Be kind or you will get reported.</p>
+  <div class="btnrow">
+    <button class="bigbtn" id="btnText" onclick="start('text')">Text chat</button>
+    <button class="bigbtn" id="btnVideo" onclick="start('video')">Video chat</button>
+  </div>
+  <div class="fine">By starting you confirm you are 18 or older.</div>
+</div>
+
+<div id="chat">
+  <div id="statusbar">
+    <div id="status">Connecting</div>
+    <div class="controls">
+      <button id="btnNew" onclick="nextStranger()">New</button>
+      <button id="btnReport" onclick="reportStranger()">Report</button>
+      <button id="btnStop" onclick="stopChat()">Stop</button>
+    </div>
+  </div>
+  <div id="videos">
+    <video id="localVideo" autoplay muted playsinline></video>
+    <video id="remoteVideo" autoplay playsinline></video>
+  </div>
+  <div id="messages"></div>
+  <div id="typing"></div>
+  <div id="composer">
+    <input id="input" placeholder="Type a message" autocomplete="off" maxlength="500">
+    <button id="send" onclick="sendMessage()">Send</button>
+  </div>
+</div>
+
+<script>
+// If this page is served by server.js, it connects back to the same host automatically.
+// If you open this file directly, it tries localhost:3000.
+let SIGNALING_URL = null;
+try {
+  if (location.host) SIGNALING_URL = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host;
+} catch (e) {}
+if (!SIGNALING_URL) SIGNALING_URL = 'ws://localhost:3000';
+
+let ws = null;
+let mode = 'text';
+let paired = false;
+let userStopped = false;
+let pc = null;
+let localStream = null;
+let typingTimer = null;
+
+const $ = id => document.getElementById(id);
+
+function setStatus(t){ $('status').textContent = t; }
+function sysMsg(t){
+  const d = document.createElement('div');
+  d.className = 'msg sys'; d.textContent = t;
+  $('messages').appendChild(d); scrollDown();
+}
+function addMsg(t, who){
+  const d = document.createElement('div');
+  d.className = 'msg ' + who; d.textContent = t;
+  $('messages').appendChild(d); scrollDown();
+}
+function scrollDown(){ const m = $('messages'); m.scrollTop = m.scrollHeight; }
+function showTyping(){ $('typing').textContent = 'Stranger is typing'; }
+function hideTyping(){ $('typing').textContent = ''; }
+
+function start(m){
+  mode = m;
+  userStopped = false;
+  $('home').style.display = 'none';
+  $('chat').style.display = 'flex';
+  $('messages').innerHTML = '';
+  hideTyping();
+  setStatus('Connecting');
+  if (mode === 'video') setupCamera();
+  connect();
+}
+
+function setupCamera(){
+  $('videos').style.display = 'flex';
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    sysMsg('Camera not available so this chat will be text only');
+    return;
+  }
+  navigator.mediaDevices.getUserMedia({ video:true, audio:true }).then(s => {
+    localStream = s;
+    $('localVideo').srcObject = s;
+  }).catch(() => {
+    sysMsg('Camera blocked so this chat will be text only');
+  });
+}
+
+function connect(){
+  setStatus('Connecting');
+  try { ws = new WebSocket(SIGNALING_URL); }
+  catch (e){ serverDown(); return; }
+  let opened = false;
+  const timer = setTimeout(() => {
+    if (!opened){ try { ws.close(); } catch (e){} serverDown(); }
+  }, 6000);
+  ws.onopen = () => {
+    opened = true; clearTimeout(timer);
+    setStatus('Looking for a stranger');
+    ws.send(JSON.stringify({ type:'join', mode:mode }));
+  };
+  ws.onmessage = onMsg;
+  ws.onerror = () => {};
+  ws.onclose = () => {
+    clearTimeout(timer);
+    if (userStopped) return;
+    if (!paired){ serverDown(); return; }
+    paired = false; hideTyping(); closePC();
+    sysMsg('Connection lost');
+    setStatus('Looking for a new stranger');
+    setTimeout(() => { if (!userStopped) connect(); }, 1500);
+  };
+}
+
+function serverDown(){
+  paired = false;
+  setStatus('Chat server is offline');
+  sysMsg('Could not reach the chat server. Start it with node server.js, then press New to retry.');
+}
+
+function onMsg(ev){
+  let d; try { d = JSON.parse(ev.data); } catch (e){ return; }
+  if (d.type === 'count'){ $('onlineCount').textContent = d.n; }
+  else if (d.type === 'waiting'){ setStatus('Looking for a stranger'); }
+  else if (d.type === 'paired'){
+    paired = true;
+    setStatus('Stranger connected');
+    sysMsg('You are now chatting with a stranger');
+    if (mode === 'video') startWebRTC(d.initiator);
+  }
+  else if (d.type === 'message'){ addMsg(d.text, 'them'); hideTyping(); }
+  else if (d.type === 'typing'){ showTyping(); }
+  else if (d.type === 'stop_typing'){ hideTyping(); }
+  else if (d.type === 'signal'){ onSignal(d.data); }
+  else if (d.type === 'stranger_left'){ strangerLeft(); }
+}
+
+function strangerLeft(){
+  paired = false; hideTyping(); closePC();
+  sysMsg('Stranger disconnected');
+  setStatus('Looking for a new stranger');
+  setTimeout(() => {
+    if (!userStopped && ws && ws.readyState === 1)
+      ws.send(JSON.stringify({ type:'join', mode:mode }));
+  }, 1500);
+}
+
+function sendMessage(){
+  const t = $('input').value.trim();
+  if (!t || !paired || !ws || ws.readyState !== 1) return;
+  addMsg(t, 'me');
+  ws.send(JSON.stringify({ type:'message', text:t }));
+  ws.send(JSON.stringify({ type:'stop_typing' }));
+  $('input').value = '';
+  hideTyping();
+}
+
+function nextStranger(){
+  hideTyping();
+  if (!ws || ws.readyState !== 1 || !paired && $('status').textContent === 'Chat server is offline'){
+    userStopped = false;
+    $('messages').innerHTML = '';
+    closePC();
+    connect();
+    return;
+  }
+  if (ws.readyState === 1){
+    try { ws.send(JSON.stringify({ type:'leave' })); } catch (e){}
+    try { ws.send(JSON.stringify({ type:'stop_typing' })); } catch (e){}
+  }
+  paired = false; closePC();
+  $('remoteVideo').srcObject = null;
+  sysMsg('Looking for a new stranger');
+  setStatus('Looking for a stranger');
+  setTimeout(() => {
+    if (!userStopped && ws && ws.readyState === 1)
+      ws.send(JSON.stringify({ type:'join', mode:mode }));
+  }, 300);
+}
+
+function reportStranger(){
+  if (!ws || ws.readyState !== 1 || !paired) return;
+  try { ws.send(JSON.stringify({ type:'report' })); } catch (e){}
+  paired = false; hideTyping(); closePC();
+  $('remoteVideo').srcObject = null;
+  sysMsg('Stranger reported. Finding someone new');
+  setStatus('Looking for a stranger');
+  setTimeout(() => {
+    if (!userStopped && ws && ws.readyState === 1)
+      ws.send(JSON.stringify({ type:'join', mode:mode }));
+  }, 800);
+}
+
+function stopChat(){
+  userStopped = true;
+  paired = false; hideTyping(); closePC();
+  try { if (ws) ws.send(JSON.stringify({ type:'leave' })); } catch (e){}
+  try { if (ws) ws.close(); } catch (e){}
+  if (localStream){ localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+  $('localVideo').srcObject = null;
+  $('remoteVideo').srcObject = null;
+  $('videos').style.display = 'none';
+  $('chat').style.display = 'none';
+  $('home').style.display = 'flex';
+}
+
+// Typing indicator, throttled
+$('input').addEventListener('input', () => {
+  if (!paired || !ws || ws.readyState !== 1) return;
+  if (!typingTimer){
+    try { ws.send(JSON.stringify({ type:'typing' })); } catch (e){}
+    typingTimer = setTimeout(() => { typingTimer = null; }, 2500);
+  }
+});
+$('input').addEventListener('keydown', e => { if (e.key === 'Enter') sendMessage(); });
+
+// WebRTC video
+async function startWebRTC(initiator){
+  closePC();
+  pc = new RTCPeerConnection({ iceServers:[{ urls:'stun:stun.l.google.com:19302' }] });
+  pc.onicecandidate = e => {
+    if (e.candidate && ws && ws.readyState === 1)
+      ws.send(JSON.stringify({ type:'signal', data:{ candidate:e.candidate } }));
+  };
+  pc.ontrack = e => { $('remoteVideo').srcObject = e.streams[0]; };
+  if (localStream) localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+  if (initiator){
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    if (ws && ws.readyState === 1)
+      ws.send(JSON.stringify({ type:'signal', data:{ sdp:pc.localDescription } }));
+  }
+}
+async function onSignal(data){
+  if (!pc || !data) return;
+  try {
+    if (data.sdp){
+      await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+      if (data.sdp.type === 'offer'){
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        if (ws && ws.readyState === 1)
+          ws.send(JSON.stringify({ type:'signal', data:{ sdp:pc.localDescription } }));
+      }
+    } else if (data.candidate){
+      await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+    }
+  } catch (e){}
+}
+function closePC(){
+  if (pc){ try { pc.close(); } catch (e){} pc = null; }
+}
+</script>
+</body>
+</html>
